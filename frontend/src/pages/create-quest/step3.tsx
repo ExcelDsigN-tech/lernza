@@ -4,6 +4,7 @@ import { z } from "zod"
 import { ArrowLeft, Check, Loader2, Coins, Sparkles, AlertCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
+import { useTranslation } from "@/i18n"
 import { formatTokens, cn } from "@/lib/utils"
 import { track } from "@/lib/analytics"
 import { milestoneSchema, type TxPhase } from "./types"
@@ -26,6 +27,7 @@ interface Step3ReviewProps {
 }
 
 export function Step3Review({ onComplete }: Step3ReviewProps) {
+  const { t } = useTranslation()
   const { step1Data, step2Data, goToBack } = useQuestCreation()
   const { address, networkName } = useWallet()
   const { rewardBalance, isLoading: balanceLoading, error: balanceError } = useWalletBalance(address, networkName)
@@ -50,18 +52,18 @@ export function Step3Review({ onComplete }: Step3ReviewProps) {
 
     try {
       if (!createdQuestId && createdQuestId !== 0) {
-        throw new Error("Quest must be created before funding. Create the quest first.")
+        throw new Error(t("create.error.mustCreateFirst"))
       }
       const verifiedToken = await getVerifiedRewardToken()
       const amount = BigInt(totalReward) * BigInt(10 ** verifiedToken.decimals)
       const result = await rewardsClient.fundQuest(address, createdQuestId, amount)
       if (result.status === "FAILED") {
-        throw new Error(result.error || "Funding failed")
+        throw new Error(result.error || t("create.error.fundingFailed"))
       }
       await invalidateFundingQueries(queryClient, createdQuestId)
       setTxPhase("funded")
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : "Funding failed"
+      const message = err instanceof Error ? err.message : t("create.error.fundingFailed")
       setTxError(message)
       setTxPhase("idle")
     }
@@ -85,7 +87,7 @@ export function Step3Review({ onComplete }: Step3ReviewProps) {
       )
 
       if (result.status === "FAILED") {
-        throw new Error(result.error || "Quest creation failed")
+        throw new Error(result.error || t("create.error.creationFailed"))
       }
 
       // Parse quest ID from the return value if available
@@ -133,7 +135,7 @@ export function Step3Review({ onComplete }: Step3ReviewProps) {
         total_reward: totalReward,
       })
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : "Quest creation failed"
+      const message = err instanceof Error ? err.message : t("create.error.creationFailed")
       setTxError(message)
       setTxPhase("idle")
     }
@@ -157,10 +159,10 @@ export function Step3Review({ onComplete }: Step3ReviewProps) {
         undefined,
         Visibility.Public
       )
-      if (result.status === "FAILED") throw new Error(result.error || "Publishing failed")
+      if (result.status === "FAILED") throw new Error(result.error || t("create.error.publishingFailed"))
       setTxPhase("done")
     } catch (err: unknown) {
-      setTxError(err instanceof Error ? err.message : "Publishing failed")
+      setTxError(err instanceof Error ? err.message : t("create.error.publishingFailed"))
       setTxPhase("funded")
     }
   }
@@ -174,7 +176,7 @@ export function Step3Review({ onComplete }: Step3ReviewProps) {
           <div className="flex items-center gap-2">
             <Sparkles className="h-4 w-4" />
             <span className="text-sm font-semibold tracking-wider uppercase">
-              Step 3 — Fund & Review
+              {t("create.step3")}
             </span>
           </div>
         </div>
@@ -182,25 +184,29 @@ export function Step3Review({ onComplete }: Step3ReviewProps) {
           {/* Quest summary */}
           <div className="space-y-2 p-5">
             <p className="text-muted-foreground mb-3 text-xs font-semibold tracking-wider uppercase">
-              Quest Details
+              {t("create.questDetails")}
             </p>
             <h3 className="text-xl font-semibold">{step1Data.name}</h3>
             <p className="text-muted-foreground text-sm">{step1Data.description}</p>
             {step1Data.category && (
               <div className="mt-3 flex items-center gap-2">
-                <span className="text-muted-foreground text-xs font-bold uppercase">Category:</span>
+                <span className="text-muted-foreground text-xs font-bold uppercase">
+                  {t("create.reviewCategory")}
+                </span>
                 <Badge variant="outline">{step1Data.category}</Badge>
               </div>
             )}
             {step1Data.tags && step1Data.tags.length > 0 && (
               <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                <span className="text-muted-foreground text-xs font-bold uppercase">Tags:</span>
-                {step1Data.tags.map((t, idx) => (
+                <span className="text-muted-foreground text-xs font-bold uppercase">
+                  {t("create.reviewTags")}
+                </span>
+                {step1Data.tags.map((tag, idx) => (
                   <span
                     key={idx}
                     className="bg-accent border-border border px-2 py-0.5 text-xs font-semibold"
                   >
-                    #{t}
+                    #{tag}
                   </span>
                 ))}
               </div>
@@ -210,7 +216,7 @@ export function Step3Review({ onComplete }: Step3ReviewProps) {
           {/* Milestones list */}
           <div className="p-5">
             <p className="text-muted-foreground mb-3 text-xs font-semibold tracking-wider uppercase">
-              Milestones ({step2Data.milestones.length})
+              {t("create.reviewMilestones", { count: step2Data.milestones.length })}
             </p>
             <div className="space-y-2">
               {step2Data.milestones.map((m: z.infer<typeof milestoneSchema>, i: number) => (
@@ -227,7 +233,11 @@ export function Step3Review({ onComplete }: Step3ReviewProps) {
                       <p className="text-muted-foreground mt-0.5 text-xs">{m.description}</p>
                       {m.prerequisiteIds.length > 0 && (
                         <p className="text-muted-foreground mt-1 text-xs font-semibold">
-                          Requires: {m.prerequisiteIds.map(id => `Step ${id + 1}`).join(", ")}
+                          {t("create.reviewRequires", {
+                            milestones: m.prerequisiteIds
+                              .map(id => t("create.prerequisiteStep", { index: id + 1 }))
+                              .join(", "),
+                          })}
                         </p>
                       )}
                     </div>
@@ -243,20 +253,20 @@ export function Step3Review({ onComplete }: Step3ReviewProps) {
           {/* Fund pool section */}
           <div className="p-5">
             <p className="text-muted-foreground mb-3 text-xs font-semibold tracking-wider uppercase">
-              Reward Pool
+              {t("create.rewardPool")}
             </p>
             <div className="bg-accent border-border mb-4 flex items-center justify-between border p-4 shadow-md">
               <div className="flex items-center gap-2">
                 <Coins className="h-5 w-5" />
                 <div>
                   <span className="font-semibold block">
-                    Total {rewardToken?.symbol ?? "reward tokens"} needed
+                    {t("create.totalNeeded", { symbol: rewardToken?.symbol ?? "reward tokens" })}
                   </span>
                   <span className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
-                    Wallet Balance:{" "}
+                    {t("create.walletBalance")}{" "}
                     {balanceLoading ? (
                       <span className="inline-flex items-center gap-1 font-bold">
-                        <Loader2 className="h-3 w-3 animate-spin" /> checking...
+                        <Loader2 className="h-3 w-3 animate-spin" /> {t("create.checkingBalance")}
                       </span>
                     ) : (
                       <span className={cn("font-bold", hasInsufficientBalance ? "text-destructive" : "text-foreground")}>
@@ -275,9 +285,15 @@ export function Step3Review({ onComplete }: Step3ReviewProps) {
               <div className="border-destructive bg-destructive/10 mb-4 flex items-start gap-2 border p-3">
                 <AlertCircle className="text-destructive mt-0.5 h-4 w-4 flex-shrink-0" />
                 <div>
-                  <p className="text-destructive font-semibold text-sm">Insufficient Wallet Balance</p>
+                  <p className="text-destructive font-semibold text-sm">
+                    {t("create.insufficientBalance")}
+                  </p>
                   <p className="text-destructive/90 text-xs mt-0.5">
-                    You need {formatTokens(totalReward)} {rewardToken?.symbol ?? "tokens"} to fund this quest, but your wallet only has {rewardBalance ?? "0.00"}. Please acquire more tokens before proceeding.
+                    {t("create.insufficientBalanceBody", {
+                      amount: formatTokens(totalReward),
+                      symbol: rewardToken?.symbol ?? "tokens",
+                      balance: rewardBalance ?? "0.00",
+                    })}
                   </p>
                 </div>
               </div>
@@ -288,12 +304,14 @@ export function Step3Review({ onComplete }: Step3ReviewProps) {
               <div className="bg-secondary border-border mb-4 flex items-center justify-between border p-3">
                 <span className="text-muted-foreground text-sm">
                   <Loader2 className="inline h-4 w-4 animate-spin mr-2" />
-                  Loading wallet balance...
+                  {t("create.loadingBalance")}
                 </span>
               </div>
             ) : rewardBalance !== null ? (
               <div className="bg-secondary border-border mb-4 flex items-center justify-between border p-3">
-                <span className="text-muted-foreground text-sm font-semibold">Your balance:</span>
+                <span className="text-muted-foreground text-sm font-semibold">
+                  {t("create.yourBalance")}
+                </span>
                 <span className="tabular-nums font-semibold">
                   {rewardBalance} {rewardToken?.symbol ?? "tokens"}
                 </span>
@@ -311,7 +329,11 @@ export function Step3Review({ onComplete }: Step3ReviewProps) {
               <div className="border-destructive bg-destructive/10 mb-4 flex items-start gap-2 border p-3">
                 <AlertCircle className="text-destructive mt-0.5 h-4 w-4 flex-shrink-0" />
                 <p className="text-destructive text-sm">
-                  Insufficient balance. You need {formatTokens(totalReward)} {rewardToken?.symbol ?? "tokens"} but have {rewardBalance}.
+                  {t("create.insufficientBalanceShort", {
+                    amount: formatTokens(totalReward),
+                    symbol: rewardToken?.symbol ?? "tokens",
+                    balance: rewardBalance,
+                  })}
                 </p>
               </div>
             )}
@@ -319,19 +341,22 @@ export function Step3Review({ onComplete }: Step3ReviewProps) {
             <p className="text-muted-foreground mb-4 text-xs">
               {rewardToken ? (
                 <>
-                  Verified {rewardToken.name} ({rewardToken.decimals} decimals). Allowlist v
-                  {REWARD_TOKEN_ALLOWLIST_VERSION}.{" "}
+                  {t("create.verifiedToken", {
+                    name: rewardToken.name,
+                    decimals: rewardToken.decimals,
+                    version: REWARD_TOKEN_ALLOWLIST_VERSION,
+                  })}{" "}
                   <a
                     className="underline"
                     href={rewardToken.explorerUrl}
                     target="_blank"
                     rel="noreferrer"
                   >
-                    View contract
+                    {t("create.viewContract")}
                   </a>
                 </>
               ) : (
-                "No approved reward token is configured for this network. Unsupported tokens cannot be used."
+                t("create.unsupportedToken")
               )}
             </p>
 
@@ -360,17 +385,17 @@ export function Step3Review({ onComplete }: Step3ReviewProps) {
               {txPhase === "creating" ? (
                 <>
                   <Loader2 className="h-4 w-4 animate-spin" />
-                  Creating quest on-chain...
+                  {t("create.creating")}
                 </>
               ) : txPhase === "created" || txPhase === "funded" || txPhase === "done" ? (
                 <>
                   <Check className="h-4 w-4" />
-                  Quest saved as private setup
+                  {t("create.savedPrivate")}
                 </>
               ) : (
                 <>
                   <Sparkles className="h-4 w-4" />
-                  Create Quest on-chain
+                  {t("create.createOnChain")}
                 </>
               )}
             </Button>
@@ -384,22 +409,25 @@ export function Step3Review({ onComplete }: Step3ReviewProps) {
                 "shimmer-on-hover mb-3 w-full",
                 (txPhase === "funded" || txPhase === "done") && "border-success"
               )}
-              title={hasInsufficientBalance ? "Insufficient balance to fund this quest" : undefined}
+              title={hasInsufficientBalance ? t("create.insufficientBalanceTitle") : undefined}
             >
               {txPhase === "funding" ? (
                 <>
                   <Loader2 className="h-4 w-4 animate-spin" />
-                  Funding reward pool...
+                  {t("create.funding")}
                 </>
               ) : txPhase === "funded" || txPhase === "done" ? (
                 <>
                   <Check className="h-4 w-4" />
-                  Reward pool funded
+                  {t("create.funded")}
                 </>
               ) : (
                 <>
                   <Coins className="h-4 w-4" />
-                  Fund Reward Pool ({formatTokens(totalReward)} {rewardToken?.symbol ?? "tokens"})
+                  {t("create.fundPool", {
+                    amount: formatTokens(totalReward),
+                    symbol: rewardToken?.symbol ?? "tokens",
+                  })}
                 </>
               )}
             </Button>
@@ -408,35 +436,35 @@ export function Step3Review({ onComplete }: Step3ReviewProps) {
             {txPhase === "funded" && (
               <Button onClick={handlePublish} className="shimmer-on-hover w-full">
                 <Sparkles className="h-4 w-4" />
-                Publish Quest
+                {t("create.publish")}
               </Button>
             )}
 
             {txPhase === "done" && (
               <Button onClick={handleFinalize} className="shimmer-on-hover w-full">
                 <Check className="h-4 w-4" />
-                Return to Dashboard
+                {t("create.returnToDashboard")}
               </Button>
             )}
 
             {txPhase === "idle" && !txError && (
               <p className="text-muted-foreground mt-2 text-center text-xs font-bold">
-                First create the quest on-chain, then fund the reward pool.
+                {t("create.hint.createFirst")}
               </p>
             )}
             {txPhase === "created" && (
               <p className="text-muted-foreground mt-2 text-center text-xs font-bold">
-                Quest created! Fund the pool to activate rewards.
+                {t("create.hint.fund")}
               </p>
             )}
             {txPhase === "funded" && (
               <p className="text-muted-foreground mt-2 text-center text-xs font-bold">
-                Pool funded. Publish when you are ready to make the quest discoverable.
+                {t("create.hint.publish")}
               </p>
             )}
             {txPhase === "done" && (
               <p className="text-muted-foreground mt-2 text-center text-xs font-bold">
-                Quest published with a funded reward pool.
+                {t("create.hint.done")}
               </p>
             )}
           </div>
@@ -446,7 +474,7 @@ export function Step3Review({ onComplete }: Step3ReviewProps) {
       <div className="flex items-center justify-between">
         <Button type="button" variant="outline" onClick={goToBack} disabled={isBusy}>
           <ArrowLeft className="h-4 w-4" />
-          Back
+          {t("common.back")}
         </Button>
       </div>
     </div>
