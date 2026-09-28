@@ -100,13 +100,31 @@ impl CertificateContract {
         recipient: Address,
         issuer: Address,
     ) -> Result<u32, Error> {
-        Self::require_not_paused(&env)?;
+        Self::internal_mint(
+            &env,
+            quest_id,
+            quest_name,
+            quest_category,
+            recipient,
+            issuer,
+        )
+    }
+
+    fn internal_mint(
+        env: &Env,
+        quest_id: u32,
+        quest_name: String,
+        quest_category: String,
+        recipient: Address,
+        issuer: Address,
+    ) -> Result<u32, Error> {
+        Self::require_not_paused(env)?;
         let cert_key = DataKey::QuestCertificate(quest_id, recipient.clone());
         if env.storage().persistent().has(&cert_key) {
             return Err(Error::AlreadyIssued);
         }
 
-        let token_id = Base::sequential_mint(&env, &recipient);
+        let token_id = Base::sequential_mint(env, &recipient);
 
         let metadata = CertificateMetadata {
             quest_id,
@@ -114,31 +132,31 @@ impl CertificateContract {
             quest_category,
             completion_date: env.ledger().timestamp(),
             milestone_count: Self::quest_milestone_count(env.clone(), quest_id),
-            issuer: issuer.clone(),
+            issuer,
             recipient: recipient.clone(),
         };
 
         let metadata_key = DataKey::CertificateMetadata(token_id);
         env.storage().persistent().set(&metadata_key, &metadata);
-        extend_persistent_ttl(&env, &metadata_key);
+        extend_persistent_ttl(env, &metadata_key);
 
         env.storage().persistent().set(&cert_key, &token_id);
-        extend_persistent_ttl(&env, &cert_key);
+        extend_persistent_ttl(env, &cert_key);
 
         let user_key = DataKey::UserCertificates(recipient.clone());
         let mut certificates: Vec<u32> = env
             .storage()
             .persistent()
             .get(&user_key)
-            .unwrap_or(Vec::new(&env));
+            .unwrap_or(Vec::new(env));
         certificates.push_back(token_id);
         env.storage().persistent().set(&user_key, &certificates);
-        extend_persistent_ttl(&env, &user_key);
+        extend_persistent_ttl(env, &user_key);
 
-        extend_instance_ttl(&env);
+        extend_instance_ttl(env);
 
         env.events().publish(
-            (Symbol::new(&env, "certificate_minted"),),
+            (Symbol::new(env, "certificate_minted"),),
             (token_id, quest_id, recipient, quest_name),
         );
 
@@ -317,17 +335,14 @@ impl CertificateContract {
     /// back to 0 rather than failing the mint. The count is purely
     /// informational metadata for the certificate display page.
     fn quest_milestone_count(env: Env, quest_id: u32) -> u32 {
-        let milestone_contract: Option<Address> = env
-            .storage()
-            .instance()
-            .get(&DataKey::MilestoneContract);
+        let milestone_contract: Option<Address> =
+            env.storage().instance().get(&DataKey::MilestoneContract);
         match milestone_contract {
-            Some(contract) => env
-                .invoke_contract(
-                    &contract,
-                    &Symbol::new(&env, "get_milestone_count"),
-                    soroban_sdk::vec![&env, quest_id.into_val(&env)],
-                ),
+            Some(contract) => env.invoke_contract(
+                &contract,
+                &Symbol::new(&env, "get_milestone_count"),
+                soroban_sdk::vec![&env, quest_id.into_val(&env)],
+            ),
             None => 0,
         }
     }

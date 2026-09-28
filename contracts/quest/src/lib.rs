@@ -324,13 +324,13 @@ impl QuestContract {
     }
 
     /// Check if a creator is verified.
+    ///
+    /// Read-only check: does not extend TTL. Verification TTL is only set/extended
+    /// during explicit administrative actions (e.g. verify_creator) to ensure
+    /// that verification expiry remains effective.
     pub fn is_creator_verified(env: Env, creator: Address) -> bool {
         let key = DataKey::VerifiedCreator(creator);
-        let is_verified = env.storage().persistent().get(&key).unwrap_or(false);
-        if is_verified {
-            common::extend_persistent_ttl(&env, &key);
-        }
-        is_verified
+        env.storage().persistent().get(&key).unwrap_or(false)
     }
 
     /// Revoke a creator's verification. Admin only.
@@ -772,6 +772,16 @@ impl QuestContract {
         quest.status = QuestStatus::Archived;
         quest.archived_at = env.ledger().timestamp();
 
+        // Cleanup: remove from public discovery indices if public
+        if quest.visibility == Visibility::Public {
+            Self::remove_id_from_index(
+                &env,
+                DataKey::PublicCategoryQuests(quest.category.clone()),
+                quest_id,
+            );
+            Self::remove_id_from_index(&env, DataKey::PublicQuests, quest_id);
+        }
+
         env.storage()
             .persistent()
             .set(&DataKey::Quest(quest_id), &quest);
@@ -849,7 +859,7 @@ impl QuestContract {
         Self::require_not_paused(&env)?;
         let mut quest = Self::load_quest(&env, quest_id)?;
         Self::require_quest_operator(&env, &quest, &actor)?;
-        if reason.len() == 0 || reason.len() > MAX_QUEST_DESCRIPTION_LEN {
+        if reason.is_empty() || reason.len() > MAX_QUEST_DESCRIPTION_LEN {
             return Err(Error::InvalidInput);
         }
         if quest.status != QuestStatus::Active {
@@ -1215,7 +1225,13 @@ impl QuestContract {
 
         env.events().publish(
             (Symbol::new(&env, "enrollee_added"),),
-            (quest_id, enrollee.clone(), quest.owner.clone(), env.ledger().timestamp(), Symbol::new(&env, "invite")),
+            (
+                quest_id,
+                enrollee.clone(),
+                quest.owner.clone(),
+                env.ledger().timestamp(),
+                Symbol::new(&env, "invite"),
+            ),
         );
 
         Self::bump(&env, quest_id);
@@ -1870,7 +1886,7 @@ impl QuestContract {
                     .persistent()
                     .get(&DataKey::PublicCategoryQuests(cat.clone()))
                     .unwrap_or(Vec::new(&env));
-                if ids.len() > 0 {
+                if !ids.is_empty() {
                     active.push_back(cat);
                 } else {
                     cleaned += 1;
@@ -1962,12 +1978,9 @@ impl QuestContract {
                     continue;
                 }
 
-                let prerequisites_met = Self::has_completed_prerequisites(
-                    env.clone(),
-                    learner.clone(),
-                    quest_id,
-                )
-                .unwrap_or(false);
+                let prerequisites_met =
+                    Self::has_completed_prerequisites(env.clone(), learner.clone(), quest_id)
+                        .unwrap_or(false);
                 let is_blocked = !prerequisites_met;
 
                 let has_pending_review = env
@@ -1981,17 +1994,16 @@ impl QuestContract {
                     .get(&DataKey::DismissedGuidance(learner.clone(), quest_id))
                     .unwrap_or(false);
 
-                let next_action = if quest.deadline != 0
-                    && env.ledger().timestamp() > quest.deadline
-                {
-                    Symbol::new(&env, "deadline_expired")
-                } else if has_pending_review {
-                    Symbol::new(&env, "pending_review")
-                } else if is_blocked {
-                    Symbol::new(&env, "blocked")
-                } else {
-                    Symbol::new(&env, "available")
-                };
+                let next_action =
+                    if quest.deadline != 0 && env.ledger().timestamp() > quest.deadline {
+                        Symbol::new(&env, "deadline_expired")
+                    } else if has_pending_review {
+                        Symbol::new(&env, "pending_review")
+                    } else if is_blocked {
+                        Symbol::new(&env, "blocked")
+                    } else {
+                        Symbol::new(&env, "available")
+                    };
 
                 let review_status = if has_pending_review {
                     Symbol::new(&env, "pending")
@@ -2415,7 +2427,10 @@ impl QuestContract {
     }
 
     /// Batch load quest and its enrollees in a single operation (#1641).
-    fn load_quest_and_enrollees(env: &Env, quest_id: u32) -> Result<(QuestInfo, Vec<Address>), Error> {
+    fn load_quest_and_enrollees(
+        env: &Env,
+        quest_id: u32,
+    ) -> Result<(QuestInfo, Vec<Address>), Error> {
         let quest_key = DataKey::Quest(quest_id);
         let enrollees_key = DataKey::Enrollees(quest_id);
         let (quest_opt, enrollees_opt): (Option<QuestInfo>, Option<Vec<Address>>) =
@@ -2694,9 +2709,7 @@ impl QuestContract {
             .get::<_, QuestInfo>(&DataKey::Quest(quest_id))
         {
             common::extend_persistent_ttl(env, &DataKey::Quest(quest_id));
-            if quest.visibility == Visibility::Public
-                && quest.status != QuestStatus::Cancelled
-            {
+            if quest.visibility == Visibility::Public && quest.status != QuestStatus::Cancelled {
                 Self::add_id_to_index(
                     env,
                     DataKey::PublicCategoryQuests(quest.category.clone()),

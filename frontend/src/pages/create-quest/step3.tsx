@@ -30,11 +30,17 @@ export function Step3Review({ onComplete }: Step3ReviewProps) {
   const { t } = useTranslation()
   const { step1Data, step2Data, goToBack } = useQuestCreation()
   const { address, networkName } = useWallet()
-  const { rewardBalance, isLoading: balanceLoading, error: balanceError } = useWalletBalance(address, networkName)
+  const {
+    rewardBalance,
+    isLoading: balanceLoading,
+    error: balanceError,
+  } = useWalletBalance(address, networkName)
   const queryClient = useQueryClient()
   const [txPhase, setTxPhase] = useState<TxPhase>("idle")
   const [txError, setTxError] = useState<string | null>(null)
   const [createdQuestId, setCreatedQuestId] = useState<number | null>(null)
+  const [createdMilestoneCount, setCreatedMilestoneCount] = useState(0)
+  const [questCreated, setQuestCreated] = useState(false)
 
   const totalReward = step2Data.milestones.reduce(
     (sum: number, m: z.infer<typeof milestoneSchema>) => sum + m.rewardAmount,
@@ -55,7 +61,7 @@ export function Step3Review({ onComplete }: Step3ReviewProps) {
         throw new Error(t("create.error.mustCreateFirst"))
       }
       const verifiedToken = await getVerifiedRewardToken()
-      const amount = BigInt(totalReward) * BigInt(10 ** verifiedToken.decimals)
+      const amount = BigInt(totalReward) * 10n ** BigInt(verifiedToken.decimals)
       const result = await rewardsClient.fundQuest(address, createdQuestId, amount)
       if (result.status === "FAILED") {
         throw new Error(result.error || t("create.error.fundingFailed"))
@@ -106,6 +112,7 @@ export function Step3Review({ onComplete }: Step3ReviewProps) {
       }
 
       setCreatedQuestId(questId)
+      setQuestCreated(true)
 
       // Initialize quest referral program settings
       setQuestReferralConfig(questId, {
@@ -114,18 +121,33 @@ export function Step3Review({ onComplete }: Step3ReviewProps) {
         rewardTrigger: "complete",
       })
 
-      // Create milestones on-chain
-      for (let i = 0; i < step2Data.milestones.length; i++) {
-        const m = step2Data.milestones[i]
-        const rewardAmount = BigInt(m.rewardAmount) * BigInt(1_000_000)
-        await milestoneClient.createMilestoneWithPrerequisites(
-          address,
-          questId,
-          m.title,
-          m.description,
-          rewardAmount,
-          m.prerequisiteIds
+      // Create milestones on-chain with progress tracking (#1721)
+      let milestonesCreated = 0
+      const totalMilestones = step2Data.milestones.length
+      try {
+        for (let i = 0; i < totalMilestones; i++) {
+          const m = step2Data.milestones[i]
+          const rewardAmount = BigInt(m.rewardAmount) * 10n ** BigInt(verifiedToken.decimals)
+          await milestoneClient.createMilestoneWithPrerequisites(
+            address,
+            questId,
+            m.title,
+            m.description,
+            rewardAmount,
+            m.prerequisiteIds
+          )
+          milestonesCreated = i + 1
+          setCreatedMilestoneCount(milestonesCreated)
+        }
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : "Milestone creation failed"
+        setTxError(
+          milestonesCreated < totalMilestones
+            ? `Created ${milestonesCreated} of ${totalMilestones} milestones. Milestone ${milestonesCreated + 1} failed: ${message}`
+            : message
         )
+        setCreatedMilestoneCount(milestonesCreated)
+        return
       }
 
       await invalidateQuestQueries(queryClient, questId)
@@ -159,7 +181,8 @@ export function Step3Review({ onComplete }: Step3ReviewProps) {
         undefined,
         Visibility.Public
       )
-      if (result.status === "FAILED") throw new Error(result.error || t("create.error.publishingFailed"))
+      if (result.status === "FAILED")
+        throw new Error(result.error || t("create.error.publishingFailed"))
       setTxPhase("done")
     } catch (err: unknown) {
       setTxError(err instanceof Error ? err.message : t("create.error.publishingFailed"))
@@ -259,17 +282,22 @@ export function Step3Review({ onComplete }: Step3ReviewProps) {
               <div className="flex items-center gap-2">
                 <Coins className="h-5 w-5" />
                 <div>
-                  <span className="font-semibold block">
+                  <span className="block font-semibold">
                     {t("create.totalNeeded", { symbol: rewardToken?.symbol ?? "reward tokens" })}
                   </span>
-                  <span className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
+                  <span className="text-muted-foreground mt-0.5 flex items-center gap-1 text-xs">
                     {t("create.walletBalance")}{" "}
                     {balanceLoading ? (
                       <span className="inline-flex items-center gap-1 font-bold">
                         <Loader2 className="h-3 w-3 animate-spin" /> {t("create.checkingBalance")}
                       </span>
                     ) : (
-                      <span className={cn("font-bold", hasInsufficientBalance ? "text-destructive" : "text-foreground")}>
+                      <span
+                        className={cn(
+                          "font-bold",
+                          hasInsufficientBalance ? "text-destructive" : "text-foreground"
+                        )}
+                      >
                         {rewardBalance ?? "0.00"} {rewardToken?.symbol ?? "tokens"}
                       </span>
                     )}
@@ -285,10 +313,10 @@ export function Step3Review({ onComplete }: Step3ReviewProps) {
               <div className="border-destructive bg-destructive/10 mb-4 flex items-start gap-2 border p-3">
                 <AlertCircle className="text-destructive mt-0.5 h-4 w-4 flex-shrink-0" />
                 <div>
-                  <p className="text-destructive font-semibold text-sm">
+                  <p className="text-destructive text-sm font-semibold">
                     {t("create.insufficientBalance")}
                   </p>
-                  <p className="text-destructive/90 text-xs mt-0.5">
+                  <p className="text-destructive/90 mt-0.5 text-xs">
                     {t("create.insufficientBalanceBody", {
                       amount: formatTokens(totalReward),
                       symbol: rewardToken?.symbol ?? "tokens",
@@ -303,7 +331,7 @@ export function Step3Review({ onComplete }: Step3ReviewProps) {
             {balanceLoading ? (
               <div className="bg-secondary border-border mb-4 flex items-center justify-between border p-3">
                 <span className="text-muted-foreground text-sm">
-                  <Loader2 className="inline h-4 w-4 animate-spin mr-2" />
+                  <Loader2 className="mr-2 inline h-4 w-4 animate-spin" />
                   {t("create.loadingBalance")}
                 </span>
               </div>
@@ -312,7 +340,7 @@ export function Step3Review({ onComplete }: Step3ReviewProps) {
                 <span className="text-muted-foreground text-sm font-semibold">
                   {t("create.yourBalance")}
                 </span>
-                <span className="tabular-nums font-semibold">
+                <span className="font-semibold tabular-nums">
                   {rewardBalance} {rewardToken?.symbol ?? "tokens"}
                 </span>
               </div>
@@ -370,7 +398,11 @@ export function Step3Review({ onComplete }: Step3ReviewProps) {
             {/* Create quest button */}
             <Button
               onClick={handleCreate}
-              disabled={txPhase !== "idle" || isBusy}
+              disabled={
+                (txPhase !== "idle" && !questCreated) ||
+                isBusy ||
+                (questCreated && txPhase === "created")
+              }
               variant={
                 txPhase === "created" || txPhase === "funded" || txPhase === "done"
                   ? "secondary"
@@ -386,6 +418,16 @@ export function Step3Review({ onComplete }: Step3ReviewProps) {
                 <>
                   <Loader2 className="h-4 w-4 animate-spin" />
                   {t("create.creating")}
+                </>
+              ) : questCreated && txError !== null ? (
+                <>
+                  <Sparkles className="h-4 w-4" />
+                  {`Retry remaining ${step2Data.milestones.length - createdMilestoneCount} milestone${step2Data.milestones.length - createdMilestoneCount !== 1 ? "s" : ""}`}
+                </>
+              ) : txPhase === "created" || txPhase === "funded" || txPhase === "done" ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Creating quest on-chain...
                 </>
               ) : txPhase === "created" || txPhase === "funded" || txPhase === "done" ? (
                 <>

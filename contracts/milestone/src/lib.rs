@@ -865,7 +865,7 @@ impl MilestoneContract {
         }
         let mut indegree: Vec<u32> = Vec::new(env);
         for id in 0..total {
-            indegree.push_back(prerequisites.get(id).unwrap().len() as u32);
+            indegree.push_back(prerequisites.get(id).unwrap().len());
             for p in prerequisites.get(id).unwrap().iter() {
                 if p >= total {
                     return Err(Error::InvalidInput);
@@ -2044,6 +2044,28 @@ impl MilestoneContract {
             .unwrap_or(0)
     }
 
+    /// Batch check completion status for multiple milestones in a single call.
+    /// Returns a Vec<bool> where each entry corresponds to the milestone_id at
+    /// that index in `milestone_ids`.
+    pub fn get_completion_batch(
+        env: Env,
+        quest_id: u32,
+        enrollee: Address,
+        milestone_ids: Vec<u32>,
+    ) -> Vec<bool> {
+        let mut results = Vec::new(&env);
+        for i in 0..milestone_ids.len() {
+            let mid = milestone_ids.get(i).expect("index in bounds");
+            let done = env.storage().persistent().has(&DataKey::Completed(
+                quest_id,
+                mid,
+                enrollee.clone(),
+            ));
+            results.push_back(done);
+        }
+        results
+    }
+
     /// The pending submission snapshot for a learner on a milestone, if one is
     /// currently awaiting review. Returns `None` once the submission has been
     /// approved, rejected, or withdrawn. The dispute UI relies on this to tell
@@ -2338,6 +2360,7 @@ impl MilestoneContract {
     /// let quest = Self::get_quest_and_verify_owner(&env, quest_id, &owner)?;
     /// // Now reuse quest_info for all subsequent operations
     /// ```
+    #[allow(dead_code)]
     fn get_quest_and_verify_owner(
         env: &Env,
         quest_id: u32,
@@ -2676,7 +2699,7 @@ impl MilestoneContract {
         if reason.len() > MAX_DISPUTE_REASON_LEN {
             return Err(Error::DisputeReasonTooLong);
         }
-        if reason.len() == 0 {
+        if reason.is_empty() {
             return Err(Error::InvalidInput);
         }
 
@@ -3052,10 +3075,10 @@ impl MilestoneContract {
 
     /// True when a dispute is currently awaiting a ruling (Pending or Escalated).
     pub fn has_open_dispute(env: Env, quest_id: u32, milestone_id: u32, enrollee: Address) -> bool {
-        match Self::get_dispute_status(env, quest_id, milestone_id, enrollee) {
-            Some(DisputeStatus::Pending) | Some(DisputeStatus::Escalated) => true,
-            _ => false,
-        }
+        matches!(
+            Self::get_dispute_status(env, quest_id, milestone_id, enrollee),
+            Some(DisputeStatus::Pending) | Some(DisputeStatus::Escalated)
+        )
     }
 
     /// Remaining cooldown, in seconds, before `enrollee` may open another
@@ -3078,11 +3101,7 @@ impl MilestoneContract {
 
         let now = env.ledger().timestamp();
         let eligible_at = last.saturating_add(DISPUTE_COOLDOWN_SECONDS);
-        if now >= eligible_at {
-            0
-        } else {
-            eligible_at - now
-        }
+        eligible_at.saturating_sub(now)
     }
 
     /// Page through every dispute ever opened on a quest, oldest first.

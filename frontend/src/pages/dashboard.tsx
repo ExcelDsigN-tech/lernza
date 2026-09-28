@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, Suspense } from "react"
+import React, { useState, useDeferredValue, useEffect, useCallback, Suspense } from "react"
 import {
   Plus,
   Users,
@@ -83,6 +83,9 @@ export function Dashboard(
   const [statusFilter, setStatusFilter] = useState<QuestDiscoveryStatus>("all")
   const [rewardMin, setRewardMin] = useState<string>("")
   const [rewardMax, setRewardMax] = useState<string>("")
+  const deferredSearch = useDeferredValue(search)
+  const deferredRewardMin = useDeferredValue(rewardMin)
+  const deferredRewardMax = useDeferredValue(rewardMax)
   const [selectedTags, setSelectedTags] = useState<string[]>([])
   const [tagFilterMode, setTagFilterMode] = useState<"AND" | "OR">("OR")
   const [tagInput, setTagInput] = useState("")
@@ -152,10 +155,10 @@ export function Dashboard(
       const questMap = new Map(allQuests.map(quest => [quest.id, quest] as const))
 
       if (questMap.size < allQuests.length) {
-        logger.warn(
-          `[Dashboard] Deduplication lost ${allQuests.length - questMap.size} quest(s)`,
-          { before: allQuests.length, after: questMap.size }
-        )
+        logger.warn(`[Dashboard] Deduplication lost ${allQuests.length - questMap.size} quest(s)`, {
+          before: allQuests.length,
+          after: questMap.size,
+        })
       }
 
       const accessibleQuests = Array.from(questMap.values())
@@ -334,18 +337,18 @@ export function Dashboard(
       ? creatorFilteredQuests
       : creatorFilteredQuests.filter(q => q.tokenAddr === rewardTokenFilter)
 
-  // Reward range filter
-  const rewardMinNum = rewardMin !== "" ? Number(rewardMin) : 0
-  const rewardMaxNum = rewardMax !== "" ? Number(rewardMax) : Infinity
+  // Reward range filter (uses deferred values to avoid re-rendering on every keystroke)
+  const rewardMinNum = deferredRewardMin !== "" ? Number(deferredRewardMin) : 0
+  const rewardMaxNum = deferredRewardMax !== "" ? Number(deferredRewardMax) : Infinity
   const rewardFilteredQuests = tokenFilteredQuests.filter(q => {
     const stats = questStats[q.id]
     const pool = stats?.poolBalance ?? 0
-    if (rewardMin !== "" && pool < rewardMinNum) return false
-    if (rewardMax !== "" && pool > rewardMaxNum) return false
+    if (deferredRewardMin !== "" && pool < rewardMinNum) return false
+    if (deferredRewardMax !== "" && pool > rewardMaxNum) return false
     return true
   })
 
-  const searchQuery = search.trim().toLowerCase()
+  const searchQuery = deferredSearch.trim().toLowerCase()
   const searchedQuests = searchQuery
     ? rewardFilteredQuests.filter(q => {
         const haystack = [q.name, q.description, q.category, ...(q.tags ?? [])]
@@ -356,9 +359,7 @@ export function Dashboard(
     : rewardFilteredQuests
 
   // Tag filter — multi-tag AND/OR (issue #1635)
-  const allKnownTags = Array.from(
-    new Set(filteredQuests.flatMap(q => q.tags ?? []))
-  ).sort()
+  const allKnownTags = Array.from(new Set(filteredQuests.flatMap(q => q.tags ?? []))).sort()
   const tagSuggestions = tagInput.trim()
     ? allKnownTags.filter(
         tag =>
@@ -537,7 +538,8 @@ export function Dashboard(
                       {t("dashboard.earnedSoFar")}
                     </span>
                     <span className="text-xs font-semibold text-green-700">
-                      +{formatTokens(earnedReward, 7, symbol)} / {formatTokens(totalReward, 7, symbol)}
+                      +{formatTokens(earnedReward, 7, symbol)} /{" "}
+                      {formatTokens(totalReward, 7, symbol)}
                     </span>
                   </div>
                 )}
@@ -608,7 +610,9 @@ export function Dashboard(
                 </h1>
               </PrefetchLink>
             ) : (
-              <h1 className="text-3xl font-semibold sm:text-4xl">{t("dashboard.discoverQuests")}</h1>
+              <h1 className="text-3xl font-semibold sm:text-4xl">
+                {t("dashboard.discoverQuests")}
+              </h1>
             )}
             <p className="mt-1 text-sm font-bold opacity-70">
               {connected
@@ -1018,7 +1022,7 @@ export function Dashboard(
                   renderItem={renderQuestCard}
                 />
               ) : (
-                <div className="relative grid grid-cols-1 gap-4 sm:gap-5 md:grid-cols-2 lg:grid-cols-1">
+                <div className="relative grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-5 lg:grid-cols-3">
                   {visibleQuests.map(renderQuestCard)}
                 </div>
               )}
