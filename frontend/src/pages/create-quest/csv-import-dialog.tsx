@@ -1,5 +1,6 @@
 import { useState, type ChangeEvent, type DragEvent } from "react"
 import { Upload, FileSpreadsheet, Download, AlertTriangle, CheckCircle2, X } from "lucide-react"
+import { useTranslation } from "@/i18n"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { formatTokens, cn } from "@/lib/utils"
@@ -12,6 +13,7 @@ interface CsvImportDialogProps {
 }
 
 export function CsvImportDialog({ isOpen, onClose, onImport }: CsvImportDialogProps) {
+  const { t } = useTranslation()
   const [file, setFile] = useState<File | null>(null)
   const [parseResult, setParseResult] = useState<CsvParseResult | null>(null)
   const [importMode, setImportMode] = useState<"append" | "replace">("append")
@@ -30,7 +32,7 @@ const handleFileSelect = (selectedFile: File) => {
         {
           row: 0,
           field: "file",
-          message: "File size must be 2 MB or smaller.",
+          message: t("csv.error.tooLarge"),
         },
       ],
     })
@@ -45,7 +47,7 @@ const handleFileSelect = (selectedFile: File) => {
         {
           row: 0,
           field: "file",
-          message: "Only .csv files are supported.",
+          message: t("csv.error.notCsv"),
         },
       ],
     })
@@ -119,13 +121,13 @@ const handleFileSelect = (selectedFile: File) => {
           <div className="flex items-center gap-2">
             <FileSpreadsheet className="h-4 w-4" />
             <span className="text-sm font-semibold tracking-wider uppercase">
-              Import Milestones from CSV
+              {t("csv.title")}
             </span>
           </div>
           <button
             onClick={onClose}
             className="hover:text-destructive cursor-pointer transition-colors"
-            aria-label="Close CSV import dialog"
+            aria-label={t("csv.close")}
           >
             <X className="h-4 w-4" />
           </button>
@@ -143,15 +145,14 @@ const handleFileSelect = (selectedFile: File) => {
             )}
           >
             <Upload className="mx-auto h-8 w-8 text-muted-foreground mb-2" />
-            <p className="text-sm font-semibold mb-1">
-              Drag and drop your milestone CSV file here
-            </p>
+            <p className="text-sm font-semibold mb-1">{t("csv.dropzone")}</p>
             <p className="text-xs text-muted-foreground mb-4">
-              Columns required: <code>title</code>, <code>description</code>, <code>rewardAmount</code>
+              {t("csv.columnsRequired")} <code>title</code>, <code>description</code>,{" "}
+              <code>rewardAmount</code>
             </p>
             <div className="flex items-center justify-center gap-3">
               <label className="border-border bg-background hover:bg-secondary cursor-pointer border px-4 py-2 text-xs font-semibold uppercase tracking-wider transition-colors shadow-sm">
-                Browse Files
+                {t("csv.browse")}
                 <input
                   type="file"
                   accept=".csv"
@@ -165,7 +166,7 @@ const handleFileSelect = (selectedFile: File) => {
                 className="text-muted-foreground hover:text-foreground flex items-center gap-1.5 text-xs font-bold transition-colors cursor-pointer"
               >
                 <Download className="h-3.5 w-3.5" />
-                View Template
+                {t("csv.template")}
               </button>
             </div>
           </div>
@@ -179,9 +180,13 @@ const handleFileSelect = (selectedFile: File) => {
               </div>
               {parseResult && (
                 <div className="flex items-center gap-2">
-                  <Badge variant="outline">{parseResult.milestones.length} Valid</Badge>
+                  <Badge variant="outline">
+                    {t("csv.validCount", { count: parseResult.milestones.length })}
+                  </Badge>
                   {parseResult.errors.length > 0 && (
-                    <Badge variant="destructive">{parseResult.errors.length} Errors</Badge>
+                    <Badge variant="destructive">
+                      {t("csv.errorCount", { count: parseResult.errors.length })}
+                    </Badge>
                   )}
                 </div>
               )}
@@ -193,12 +198,12 @@ const handleFileSelect = (selectedFile: File) => {
             <div className="border border-destructive/40 bg-destructive/10 p-4 space-y-2">
               <div className="flex items-center gap-2 text-destructive text-xs font-semibold">
                 <AlertTriangle className="h-4 w-4 flex-shrink-0" />
-                CSV Parsing Errors ({parseResult.errors.length}):
+                {t("csv.errorsHeading", { count: parseResult.errors.length })}
               </div>
               <ul className="text-xs space-y-1 list-disc list-inside text-destructive font-medium max-h-32 overflow-y-auto">
                 {parseResult.errors.map((err, idx) => (
                   <li key={idx}>
-                    Row {err.row}: Field <code>{err.field}</code> — {err.message}
+                    {t("csv.rowError", { row: err.row, field: err.field, message: err.message })}
                   </li>
                 ))}
               </ul>
@@ -210,10 +215,10 @@ const handleFileSelect = (selectedFile: File) => {
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-semibold tracking-wider uppercase text-muted-foreground">
-                  Valid Milestones Preview ({parseResult.milestones.length})
+                  {t("csv.previewHeading", { count: parseResult.milestones.length })}
                 </span>
                 <span className="text-xs font-semibold">
-                  Total Reward: {formatTokens(totalReward)} USDC
+                  {t("csv.totalReward", { amount: formatTokens(totalReward) })}
                 </span>
               </div>
 
@@ -242,7 +247,7 @@ const handleFileSelect = (selectedFile: File) => {
                     onChange={() => setImportMode("append")}
                     className="accent-foreground"
                   />
-                  Append to existing milestones
+                  {t("csv.modeAppend")}
                 </label>
                 <label className="flex items-center gap-2 text-xs font-semibold cursor-pointer">
                   <input
@@ -253,7 +258,7 @@ const handleFileSelect = (selectedFile: File) => {
                     onChange={() => setImportMode("replace")}
                     className="accent-foreground"
                   />
-                  Replace current milestones
+                  {t("csv.modeReplace")}
                 </label>
               </div>
             </div>
@@ -263,7 +268,7 @@ const handleFileSelect = (selectedFile: File) => {
         {/* Footer */}
         <div className="bg-secondary border-border flex items-center justify-end gap-3 border-t p-4">
           <Button type="button" variant="outline" onClick={onClose}>
-            Cancel
+            {t("common.cancel")}
           </Button>
           <Button
             type="button"
@@ -272,7 +277,7 @@ const handleFileSelect = (selectedFile: File) => {
             className="shimmer-on-hover"
           >
             <CheckCircle2 className="h-4 w-4" />
-            Import {parseResult?.milestones.length || 0} Milestones
+            {t("csv.import", { count: parseResult?.milestones.length || 0 })}
           </Button>
         </div>
       </div>
